@@ -35,19 +35,6 @@ The Java code is located in the `src/` directory:
 | `src/main/java/com/checkATS/model/` | Data models |
 | `src/main/java/com/checkATS/service/` | Service layer |
 
-### Running the Backend
-
-```bash
-# Using Maven (from project root)
-mvn spring-boot:run
-
-# Or compile first
-mvn clean install
-mvn spring-boot:run
-```
-
-**Requirements:** JDK 21+
-
 ---
 
 ## Accessing the Frontend
