@@ -13,11 +13,16 @@ interface AnalysisResults {
   improvements: string[]
   parsedText: string
   keywords: string[]
+  matchedRequirements?: string[]
+  missingRequirements?: string[]
 }
 
 function App() {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
   const [fileUrl, setFileUrl] = useState<string | null>(null)
+  const [jobDescription, setJobDescription] = useState('')
+  const [jobDescriptionImage, setJobDescriptionImage] = useState<File | null>(null)
+  const [jobDescImageUrl, setJobDescImageUrl] = useState<string | null>(null)
   const [view, setView] = useState<'upload' | 'results'>('upload')
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [activeTab, setActiveTab] = useState<'overview' | 'parsed' | 'pdf'>('overview')
@@ -34,8 +39,9 @@ function App() {
   useEffect(() => {
     return () => {
       if (fileUrl) URL.revokeObjectURL(fileUrl)
+      if (jobDescImageUrl) URL.revokeObjectURL(jobDescImageUrl)
     }
-  }, [fileUrl])
+  }, [fileUrl, jobDescImageUrl])
 
   const extractTextFromPDF = async (file: File): Promise<string> => {
     // Dynamically assign the Vite-compiled worker instance for this extraction task
@@ -59,11 +65,12 @@ function App() {
     return fullText
   }
 
-  const analyzeResumeText = (text: string) => {
+  const analyzeResumeText = (text: string, jobDesc: string = '') => {
     const keywords = [
       'JavaScript', 'TypeScript', 'React', 'Python', 'Java', 'SQL',
       'leadership', 'team', 'managed', 'developed', 'implemented',
-      'increased', 'reduced', 'improved', 'achieved'
+      'increased', 'reduced', 'improved', 'achieved', 'Node.js', 
+      'Git', 'API', 'database', 'agile', 'scrum'
     ]
 
     const foundKeywords = keywords.filter(keyword =>
@@ -81,11 +88,63 @@ function App() {
     score += foundKeywords.length * 3
     score += hasMetrics ? 15 : 0
     score += hasActionVerbs ? 10 : 0
-    score = Math.min(score, 100)
 
     const strengths: string[] = []
     const improvements: string[] = []
     const feedback: string[] = []
+    let matchedRequirements: string[] = []
+    let missingRequirements: string[] = []
+
+    // Analyze against job description if provided
+    if (jobDesc.trim()) {
+      const jobKeywords = jobDesc.toLowerCase()
+      const resumeText = text.toLowerCase()
+
+      // Extract common tech/skill terms from job description
+      const techTerms = [
+        'react', 'node.js', 'python', 'java', 'javascript', 'typescript',
+        'sql', 'mongodb', 'aws', 'docker', 'kubernetes', 'git',
+        'agile', 'scrum', 'rest api', 'graphql', 'ci/cd'
+      ]
+
+      techTerms.forEach(term => {
+        if (jobKeywords.includes(term)) {
+          if (resumeText.includes(term)) {
+            matchedRequirements.push(term)
+          } else {
+            missingRequirements.push(term)
+          }
+        }
+      })
+
+      // Check for years of experience match
+      const jobYearsMatch = jobDesc.match(/(\d+)\+?\s*years?/i)
+      const resumeYearsMatch = text.match(/(\d+)\+?\s*years?/i)
+      
+      if (jobYearsMatch && resumeYearsMatch) {
+        const jobYears = parseInt(jobYearsMatch[1])
+        const resumeYears = parseInt(resumeYearsMatch[1])
+        
+        if (resumeYears >= jobYears) {
+          strengths.push(`Experience requirement met (${resumeYears}+ years)`)
+          score += 10
+        } else {
+          improvements.push(`Job requires ${jobYears}+ years, you have ${resumeYears}+`)
+        }
+      }
+
+      // Scoring based on job description match
+      if (matchedRequirements.length > 0) {
+        score += matchedRequirements.length * 5
+        feedback.push(`✅ Matches ${matchedRequirements.length} job requirements`)
+      }
+
+      if (missingRequirements.length > 0) {
+        feedback.push(`⚠️ Missing ${missingRequirements.length} job requirements`)
+      }
+    }
+
+    score = Math.min(score, 100)
 
     if (foundKeywords.length > 5) {
       strengths.push('Good use of industry-relevant keywords')
@@ -121,7 +180,9 @@ function App() {
       strengths,
       improvements,
       feedback,
-      keywords: foundKeywords
+      keywords: foundKeywords,
+      matchedRequirements,
+      missingRequirements
     }
   }
 
@@ -137,6 +198,30 @@ function App() {
     }
   }
 
+  const handleJobDescImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file && file.type.startsWith('image/')) {
+      setJobDescriptionImage(file)
+      
+      if (jobDescImageUrl) URL.revokeObjectURL(jobDescImageUrl)
+      setJobDescImageUrl(URL.createObjectURL(file))
+    } else {
+      alert('Please upload an image file (PNG, JPG, etc.)')
+    }
+  }
+
+  const removeJobDescImage = () => {
+    if (jobDescImageUrl) URL.revokeObjectURL(jobDescImageUrl)
+    setJobDescriptionImage(null)
+    setJobDescImageUrl(null)
+    
+    // Clear the file input so the same file can be uploaded again
+    const fileInput = document.getElementById('job-desc-image') as HTMLInputElement
+    if (fileInput) {
+      fileInput.value = ''
+    }
+  }
+
   const analyzeResume = async () => {
     if (!uploadedFile) return
 
@@ -144,7 +229,10 @@ function App() {
     
     try {
       const extractedText = await extractTextFromPDF(uploadedFile)
-      const analysis = analyzeResumeText(extractedText)
+      
+      // Use job description if provided
+      const jobDesc = jobDescription || ''
+      const analysis = analyzeResumeText(extractedText, jobDesc)
 
       setAnalysisResults({
         ...analysis,
@@ -201,6 +289,29 @@ function App() {
                 )}
               </div>
             </div>
+
+            {/* Show Job Match if job description was provided */}
+            {(analysisResults.matchedRequirements?.length ?? 0) > 0 && (
+              <div className="section">
+                <h4>✅ Matched Requirements</h4>
+                <div className="requirements-list">
+                  {analysisResults.matchedRequirements?.map((req, idx) => (
+                    <span key={idx} className="requirement-tag matched">{req}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {(analysisResults.missingRequirements?.length ?? 0) > 0 && (
+              <div className="section">
+                <h4>⚠️ Missing Requirements</h4>
+                <div className="requirements-list">
+                  {analysisResults.missingRequirements?.map((req, idx) => (
+                    <span key={idx} className="requirement-tag missing">{req}</span>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="section">
               <h4>💬 Ask AI</h4>
@@ -387,6 +498,77 @@ function App() {
                 </>
               )}
             </label>
+          </div>
+
+          <div className="job-description-input">
+            <label htmlFor="job-description">
+              <strong>Optional:</strong> Provide Job Description for Tailored Feedback
+            </label>
+            
+            <div className="job-desc-flex-container">
+              {/* Left Column: Text Area Input */}
+              <div className="job-desc-column">
+                <textarea 
+                  id="job-description" 
+                  value={jobDescription}
+                  onChange={(e) => setJobDescription(e.target.value)}
+                  placeholder="E.g., 'Looking for a Software Engineer with 3+ years experience in React and Node.js, strong knowledge of REST APIs, Git, and Agile methodologies...'"
+                  rows={6}
+                />
+              </div>
+              
+              {/* Middle Column: Visual Divider */}
+              <div className="or-divider">
+                <span>OR</span>
+              </div>
+
+              {/* Right Column: Interactive Image Dropbox Container */}
+              <div className="job-desc-column">
+                <div className="image-upload-box">
+                  <input
+                    type="file"
+                    id="job-desc-image"
+                    accept="image/*"
+                    onChange={handleJobDescImageUpload}
+                    style={{ display: 'none' }}
+                  />
+                  <label htmlFor="job-desc-image" className="image-upload-label">
+                    {jobDescriptionImage ? (
+                      <>
+                        <span className="file-icon">🖼️</span>
+                        <p className="file-name-display">{jobDescriptionImage.name}</p>
+                        {jobDescImageUrl && (
+                          <img src={jobDescImageUrl} alt="Job Description" className="preview-image" />
+                        )}
+                        <p className="change-file">Click to change image</p>
+                        <button 
+                          type="button"
+                          className="remove-image-btn"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            removeJobDescImage()
+                          }}
+                        >
+                          ✕ Remove Image
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="upload-icon">📸</span>
+                        <p>Upload Screenshot of Job Description</p>
+                        <p className="upload-hint">PNG, JPG, or any image format</p>
+                      </>
+                    )}
+                  </label>
+                </div>
+              </div>
+            </div>
+            
+            {jobDescriptionImage && (
+              <p className="feature-note">
+                ℹ️ <strong>Note:</strong> Image OCR support coming soon! For now, please paste the text above.
+              </p>
+            )}
           </div>
 
           {uploadedFile && (
